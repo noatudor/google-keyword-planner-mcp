@@ -127,12 +127,12 @@ public sealed class KeywordPlannerToolTests
     {
         var tool = CreateToolWithFakeApi(HttpStatusCode.OK, """
             {
-                "metrics": [{
+                "results": [{
                     "text": "dependency injection",
                     "keywordMetrics": {
                         "avgMonthlySearches": "1000",
                         "competition": "MEDIUM",
-                        "competitionIndex": 50,
+                        "competitionIndex": "50",
                         "lowTopOfPageBidMicros": "100000",
                         "highTopOfPageBidMicros": "500000",
                         "monthlySearchVolumes": []
@@ -147,6 +147,7 @@ public sealed class KeywordPlannerToolTests
         Assert.NotNull(result);
         Assert.Equal(1, result.Count);
         Assert.Equal("dependency injection", result.Keywords[0].Text);
+        Assert.Equal(50, result.Keywords[0].CompetitionIndex);
     }
 
     [Fact]
@@ -166,12 +167,7 @@ public sealed class KeywordPlannerToolTests
     {
         var tool = CreateToolWithFakeApi(HttpStatusCode.OK, """
             {
-                "adGroupForecastMetrics": [{
-                    "keywordForecastMetrics": [{
-                        "keyword": {"text": "dependency injection", "matchType": "BROAD"},
-                        "metrics": {"impressions": 1000, "clicks": 50, "costMicros": 500000, "ctr": 0.05}
-                    }]
-                }]
+                "campaignForecastMetrics": {"impressions": 1000, "clicks": 50, "costMicros": "500000", "clickThroughRate": 0.05}
             }
             """);
 
@@ -181,6 +177,8 @@ public sealed class KeywordPlannerToolTests
         Assert.NotNull(result);
         Assert.Single(result.Keywords);
         Assert.Equal("dependency injection", result.Keywords[0].Text);
+        Assert.Equal(50, result.Keywords[0].Clicks);
+        Assert.Equal(500000, result.Keywords[0].CostMicros);
         Assert.Equal(30, result.ForecastDays);
         Assert.Equal(1_000_000, result.MaxCpcMicros);
     }

@@ -15,7 +15,7 @@ import (
 )
 
 // TestNewServer_RegistersTools verifies that newServer builds a server with all
-// three tools registered and listable via a real client session, catching invalid
+// eight tools registered and listable via a real client session, catching invalid
 // struct tags or schema-generation failures at test time rather than at runtime.
 func TestNewServer_RegistersTools(t *testing.T) {
 	t.Parallel()
@@ -48,7 +48,8 @@ func TestNewServer_RegistersTools(t *testing.T) {
 	for _, tool := range result.Tools {
 		names = append(names, tool.Name)
 	}
-	for _, want := range []string{"generate_keyword_ideas", "get_historical_metrics", "get_keyword_forecast"} {
+	for _, want := range []string{"generate_keyword_ideas", "get_historical_metrics", "get_keyword_forecast",
+		"score_topics", "find_offer_variants", "compare_keyword_markets", "find_seasonal_opportunities", "get_targeting_reference"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("tool %q not registered; got tools %v", want, names)
 		}
@@ -256,6 +257,9 @@ func TestGenerateKeywordIdeas_APIError_ReturnsErrorContent(t *testing.T) {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
 
+	if !result.IsError {
+		t.Error("API failures must set IsError so the model does not read them as data")
+	}
 	text := result.Content[0].(*mcp.TextContent).Text
 	if !strings.Contains(text, "generating keyword ideas:") {
 		t.Errorf("result text = %q, want it to mention %q", text, "generating keyword ideas:")
@@ -274,12 +278,12 @@ func TestGetHistoricalMetrics_Success_ReturnsMarshaledMetrics(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
-			"metrics": [{
+			"results": [{
 				"text": "dependency injection",
 				"keywordMetrics": {
 					"avgMonthlySearches": "1000",
 					"competition": "MEDIUM",
-					"competitionIndex": 50,
+					"competitionIndex": "50",
 					"lowTopOfPageBidMicros": "100000",
 					"highTopOfPageBidMicros": "500000",
 					"monthlySearchVolumes": []
@@ -297,7 +301,13 @@ func TestGetHistoricalMetrics_Success_ReturnsMarshaledMetrics(t *testing.T) {
 	}
 
 	text := result.Content[0].(*mcp.TextContent).Text
-	var parsed keywordplanner.HistoricalMetricsResponse
+	var parsed struct {
+		Count    int `json:"count"`
+		Keywords []struct {
+			Text       string `json:"text"`
+			DemandTier string `json:"demandTier"`
+		} `json:"keywords"`
+	}
 	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
 		t.Fatalf("failed to parse result content: %v", err)
 	}
@@ -328,6 +338,9 @@ func TestGetHistoricalMetrics_APIError_ReturnsErrorContent(t *testing.T) {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
 
+	if !result.IsError {
+		t.Error("API failures must set IsError so the model does not read them as data")
+	}
 	text := result.Content[0].(*mcp.TextContent).Text
 	if !strings.Contains(text, "getting historical metrics:") {
 		t.Errorf("result text = %q, want it to mention %q", text, "getting historical metrics:")
@@ -346,12 +359,7 @@ func TestGetKeywordForecast_Success_ReturnsMarshaledForecast(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
-			"adGroupForecastMetrics": [{
-				"keywordForecastMetrics": [{
-					"keyword": {"text": "dependency injection", "matchType": "BROAD"},
-					"metrics": {"impressions": 1000, "clicks": 50, "costMicros": 500000, "ctr": 0.05}
-				}]
-			}]
+			"campaignForecastMetrics": {"impressions": 1000, "clicks": 50, "costMicros": "500000", "clickThroughRate": 0.05}
 		}`))
 	}))
 	defer srv.Close()
@@ -364,12 +372,19 @@ func TestGetKeywordForecast_Success_ReturnsMarshaledForecast(t *testing.T) {
 	}
 
 	text := result.Content[0].(*mcp.TextContent).Text
-	var parsed keywordplanner.ForecastResponse
+	var parsed struct {
+		Keywords []struct {
+			Text   string  `json:"text"`
+			Clicks float64 `json:"clicks"`
+		} `json:"keywords"`
+		ForecastDays int   `json:"forecastDays"`
+		MaxCPCMicros int64 `json:"maxCpcMicros"`
+	}
 	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
 		t.Fatalf("failed to parse result content: %v", err)
 	}
-	if len(parsed.Keywords) != 1 || parsed.Keywords[0].Text != "dependency injection" {
-		t.Errorf("Keywords = %+v, want one entry for %q", parsed.Keywords, "dependency injection")
+	if len(parsed.Keywords) != 1 || parsed.Keywords[0].Text != "dependency injection" || parsed.Keywords[0].Clicks != 50 {
+		t.Errorf("Keywords = %+v, want one entry for %q with 50 clicks", parsed.Keywords, "dependency injection")
 	}
 	if parsed.ForecastDays != 30 {
 		t.Errorf("ForecastDays = %d, want default of 30", parsed.ForecastDays)
@@ -397,6 +412,9 @@ func TestGetKeywordForecast_APIError_ReturnsErrorContent(t *testing.T) {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
 
+	if !result.IsError {
+		t.Error("API failures must set IsError so the model does not read them as data")
+	}
 	text := result.Content[0].(*mcp.TextContent).Text
 	if !strings.Contains(text, "getting keyword forecast:") {
 		t.Errorf("result text = %q, want it to mention %q", text, "getting keyword forecast:")
@@ -414,7 +432,7 @@ func TestNewServer_CallHistoricalMetricsTool_ViaRealSession(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"metrics": []}`))
+		_, _ = w.Write([]byte(`{"results": []}`))
 	}))
 	defer srv.Close()
 
@@ -457,7 +475,7 @@ func TestNewServer_CallKeywordForecastTool_ViaRealSession(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"adGroupForecastMetrics": []}`))
+		_, _ = w.Write([]byte(`{"campaignForecastMetrics": {}}`))
 	}))
 	defer srv.Close()
 

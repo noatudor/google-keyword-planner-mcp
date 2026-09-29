@@ -20,6 +20,7 @@ public sealed class KeywordPlannerClientTests
         private readonly HttpStatusCode _apiStatusCode;
         private readonly string _apiResponseBody;
         public List<HttpRequestMessage> ApiRequests { get; } = [];
+        public List<string> ApiBodies { get; } = [];
 
         internal FakeHttpHandler(
             HttpStatusCode apiStatusCode = HttpStatusCode.OK,
@@ -30,7 +31,7 @@ public sealed class KeywordPlannerClientTests
                 new { results = Array.Empty<object>() });
         }
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
             // Satisfy the OAuth2 token refresh call.
@@ -42,17 +43,18 @@ public sealed class KeywordPlannerClientTests
                     expires_in = 3600,
                     token_type = "Bearer"
                 });
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(tokenJson, System.Text.Encoding.UTF8, "application/json")
-                });
+                };
             }
 
             ApiRequests.Add(request);
-            return Task.FromResult(new HttpResponseMessage(_apiStatusCode)
+            ApiBodies.Add(request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken));
+            return new HttpResponseMessage(_apiStatusCode)
             {
                 Content = new StringContent(_apiResponseBody, System.Text.Encoding.UTF8, "application/json")
-            });
+            };
         }
     }
 
@@ -95,7 +97,7 @@ public sealed class KeywordPlannerClientTests
     [Fact]
     public async Task GetHistoricalMetrics_SendsLoginCustomerIdHeader_WhenSet()
     {
-        var historicalBody = JsonSerializer.Serialize(new { metrics = Array.Empty<object>() });
+        var historicalBody = JsonSerializer.Serialize(new { results = Array.Empty<object>() });
         var (client, handler) = CreateClient(loginCustomerId: "1381404200", apiBody: historicalBody);
 
         await client.GetHistoricalMetricsAsync(["blazor"]);
@@ -108,7 +110,7 @@ public sealed class KeywordPlannerClientTests
     [Fact]
     public async Task GetKeywordForecast_SendsLoginCustomerIdHeader_WhenSet()
     {
-        var forecastBody = JsonSerializer.Serialize(new { adGroupForecastMetrics = Array.Empty<object>() });
+        var forecastBody = JsonSerializer.Serialize(new { campaignForecastMetrics = new { } });
         var (client, handler) = CreateClient(loginCustomerId: "1381404200", apiBody: forecastBody);
 
         await client.GetKeywordForecastAsync(["blazor"], maxCpcMicros: 1_000_000, forecastDays: 30);
@@ -116,6 +118,47 @@ public sealed class KeywordPlannerClientTests
         var apiRequest = Assert.Single(handler.ApiRequests);
         Assert.True(apiRequest.Headers.TryGetValues("login-customer-id", out var values));
         Assert.Equal("1381404200", values.Single());
+    }
+
+    [Fact]
+    public async Task GetHistoricalMetrics_ParsesV23ResultsWithStringInt64s()
+    {
+        var body = """
+            {"results": [{"text": "blazor", "keywordMetrics": {"avgMonthlySearches": "1600", "competition": "HIGH",
+              "competitionIndex": "87", "highTopOfPageBidMicros": "12810000",
+              "monthlySearchVolumes": [{"year": "2026", "month": "AUGUST", "monthlySearches": "1900"}]}}]}
+            """;
+        var (client, _) = CreateClient(apiBody: body);
+
+        var result = await client.GetHistoricalMetricsAsync(["blazor"]);
+
+        var metrics = Assert.Single(result.Keywords);
+        Assert.Equal(1600, metrics.AvgMonthlySearches);
+        Assert.Equal(87, metrics.CompetitionIndex);
+        Assert.Equal(12_810_000, metrics.HighTopOfPageBidMicros);
+        Assert.Equal(new MonthlyVolume(2026, 8, 1900), Assert.Single(metrics.MonthlySearchVolumes));
+    }
+
+    [Fact]
+    public async Task GetKeywordForecast_UsesV23CampaignShape()
+    {
+        var (client, handler) = CreateClient(apiBody: """{"campaignForecastMetrics": {"clicks": 12.5, "costMicros": "3000000"}}""");
+
+        var result = await client.GetKeywordForecastAsync(["blazor", "maui"], maxCpcMicros: 2_000_000, forecastDays: 30);
+
+        using var request = JsonDocument.Parse(Assert.Single(handler.ApiBodies));
+        Assert.False(request.RootElement.TryGetProperty("campaignForecastSpec", out _));
+        var campaign = request.RootElement.GetProperty("campaign");
+        Assert.Equal("GOOGLE_SEARCH", campaign.GetProperty("keywordPlanNetwork").GetString());
+        Assert.Equal("2000000", campaign.GetProperty("biddingStrategy").GetProperty("manualCpcBiddingStrategy").GetProperty("maxCpcBidMicros").GetString());
+        Assert.Equal(2, campaign.GetProperty("adGroups")[0].GetProperty("biddableKeywords").GetArrayLength());
+        var start = DateTime.Parse(request.RootElement.GetProperty("forecastPeriod").GetProperty("startDate").GetString()!);
+        Assert.True(start > DateTime.UtcNow.Date, "forecast must start in the future");
+
+        var total = Assert.Single(result.Keywords);
+        Assert.Equal("blazor, maui", total.Text);
+        Assert.Equal(12.5, total.Clicks);
+        Assert.Equal(3_000_000, total.CostMicros);
     }
 
     [Fact]

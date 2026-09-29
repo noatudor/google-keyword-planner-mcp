@@ -71,7 +71,7 @@ internal sealed class KeywordPlannerClient(
         var raw = JsonSerializer.Deserialize(
             body, KwpJsonContext.Default.GenerateHistoricalMetricsResponse);
 
-        var metrics = (raw?.Metrics ?? [])
+        var metrics = (raw?.Results ?? [])
             .Select(m => new KeywordMetrics(
                 m.Text,
                 ParseLong(m.KeywordMetrics.AvgMonthlySearches),
@@ -116,15 +116,12 @@ internal sealed class KeywordPlannerClient(
         var raw = JsonSerializer.Deserialize(
             body, KwpJsonContext.Default.GenerateForecastMetricsResponse);
 
-        var forecastKeywords = (raw?.AdGroupForecastMetrics ?? [])
-            .SelectMany(ag => ag.KeywordForecastMetrics ?? [])
-            .Select(kf => new KeywordForecastMetrics(
-                kf.Keyword.Text,
-                kf.Metrics.Impressions,
-                kf.Metrics.Clicks,
-                kf.Metrics.CostMicros,
-                kf.Metrics.Ctr))
-            .ToList();
+        // v23 returns campaign-level totals only, so there is one row covering every keyword.
+        var total = raw?.CampaignForecastMetrics ?? new CampaignForecastMetrics();
+        var forecastKeywords = new List<KeywordForecastMetrics>
+        {
+            new(string.Join(", ", keywords), total.Impressions, total.Clicks, total.CostMicros, total.ClickThroughRate)
+        };
 
         return new ForecastResponse(forecastKeywords, forecastDays, maxCpcMicros);
     }
@@ -163,15 +160,16 @@ internal sealed class KeywordPlannerClient(
         long maxCpcMicros,
         int forecastDays)
     {
-        var start = DateTime.UtcNow.ToString("yyyy-MM-dd");
-        var end = DateTime.UtcNow.AddDays(forecastDays).ToString("yyyy-MM-dd");
+        // The forecast period must start in the future.
+        var startDay = DateTime.UtcNow.Date.AddDays(1);
+        var start = startDay.ToString("yyyy-MM-dd");
+        var end = startDay.AddDays(Math.Max(forecastDays, 1) - 1).ToString("yyyy-MM-dd");
 
         return new GenerateForecastMetricsRequest
         {
-            CampaignForecastSpec = new CampaignForecastSpec
+            ForecastPeriod = new ForecastPeriod { StartDate = start, EndDate = end },
+            Campaign = new CampaignToForecast
             {
-                StartDate = start,
-                EndDate = end,
                 BiddingStrategy = new BiddingStrategy
                 {
                     ManualCpcBiddingStrategy = new ManualCpcBiddingStrategy

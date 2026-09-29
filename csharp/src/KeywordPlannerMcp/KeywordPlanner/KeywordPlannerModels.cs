@@ -27,7 +27,7 @@ internal sealed record KeywordMetrics(
     string Text,
     long AvgMonthlySearches,
     string Competition,
-    int CompetitionIndex,
+    long CompetitionIndex,
     long LowTopOfPageBidMicros,
     long HighTopOfPageBidMicros,
     IReadOnlyList<MonthlyVolume> MonthlySearchVolumes);
@@ -37,7 +37,7 @@ internal sealed record HistoricalMetricsResponse(
     IReadOnlyList<KeywordMetrics> Keywords,
     int Count);
 
-/// <summary>Projected performance metrics for a keyword.</summary>
+/// <summary>Projected performance metrics. The v23 API forecasts one campaign, so this is the total for all keywords.</summary>
 internal sealed record KeywordForecastMetrics(
     string Text,
     double Impressions,
@@ -130,8 +130,8 @@ internal sealed class GenerateHistoricalMetricsRequest
 
 internal sealed class GenerateHistoricalMetricsResponse
 {
-    [JsonPropertyName("metrics")]
-    public List<HistoricalMetricsResult>? Metrics { get; set; }
+    [JsonPropertyName("results")]
+    public List<HistoricalMetricsResult>? Results { get; set; }
 }
 
 internal sealed class HistoricalMetricsResult
@@ -151,8 +151,10 @@ internal sealed class RawKeywordMetrics
     [JsonPropertyName("competition")]
     public string Competition { get; set; } = string.Empty;
 
+    // int64 fields are serialized as JSON strings by the API.
     [JsonPropertyName("competitionIndex")]
-    public int CompetitionIndex { get; set; }
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
+    public long CompetitionIndex { get; set; }
 
     [JsonPropertyName("lowTopOfPageBidMicros")]
     public string? LowTopOfPageBidMicros { get; set; }
@@ -167,6 +169,7 @@ internal sealed class RawKeywordMetrics
 internal sealed class RawMonthlyVolume
 {
     [JsonPropertyName("year")]
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public int Year { get; set; }
 
     [JsonPropertyName("month")]
@@ -178,20 +181,29 @@ internal sealed class RawMonthlyVolume
 
 internal sealed class GenerateForecastMetricsRequest
 {
-    [JsonPropertyName("campaignForecastSpec")]
-    public CampaignForecastSpec CampaignForecastSpec { get; set; } = new();
+    [JsonPropertyName("forecastPeriod")]
+    public ForecastPeriod ForecastPeriod { get; set; } = new();
+
+    [JsonPropertyName("campaign")]
+    public CampaignToForecast Campaign { get; set; } = new();
 }
 
-internal sealed class CampaignForecastSpec
+internal sealed class ForecastPeriod
 {
-    [JsonPropertyName("biddingStrategy")]
-    public BiddingStrategy BiddingStrategy { get; set; } = new();
-
     [JsonPropertyName("startDate")]
     public string StartDate { get; set; } = string.Empty;
 
     [JsonPropertyName("endDate")]
     public string EndDate { get; set; } = string.Empty;
+}
+
+internal sealed class CampaignToForecast
+{
+    [JsonPropertyName("keywordPlanNetwork")]
+    public string KeywordPlanNetwork { get; set; } = "GOOGLE_SEARCH";
+
+    [JsonPropertyName("biddingStrategy")]
+    public BiddingStrategy BiddingStrategy { get; set; } = new();
 
     [JsonPropertyName("adGroups")]
     public IReadOnlyList<AdGroupForecast> AdGroups { get; set; } = [];
@@ -232,26 +244,11 @@ internal sealed class ForecastKeyword
 
 internal sealed class GenerateForecastMetricsResponse
 {
-    [JsonPropertyName("adGroupForecastMetrics")]
-    public List<AdGroupForecastMetrics>? AdGroupForecastMetrics { get; set; }
+    [JsonPropertyName("campaignForecastMetrics")]
+    public CampaignForecastMetrics? CampaignForecastMetrics { get; set; }
 }
 
-internal sealed class AdGroupForecastMetrics
-{
-    [JsonPropertyName("keywordForecastMetrics")]
-    public List<KeywordForecastMetric>? KeywordForecastMetrics { get; set; }
-}
-
-internal sealed class KeywordForecastMetric
-{
-    [JsonPropertyName("keyword")]
-    public ForecastKeyword Keyword { get; set; } = new();
-
-    [JsonPropertyName("metrics")]
-    public ForecastMetricData Metrics { get; set; } = new();
-}
-
-internal sealed class ForecastMetricData
+internal sealed class CampaignForecastMetrics
 {
     [JsonPropertyName("impressions")]
     public double Impressions { get; set; }
@@ -260,10 +257,11 @@ internal sealed class ForecastMetricData
     public double Clicks { get; set; }
 
     [JsonPropertyName("costMicros")]
+    [JsonNumberHandling(JsonNumberHandling.AllowReadingFromString)]
     public double CostMicros { get; set; }
 
-    [JsonPropertyName("ctr")]
-    public double Ctr { get; set; }
+    [JsonPropertyName("clickThroughRate")]
+    public double ClickThroughRate { get; set; }
 }
 
 internal sealed class TokenResponse

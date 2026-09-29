@@ -29,9 +29,16 @@ With this MCP server configured, you can ask your AI: _"What keywords should I t
 
 | Tool | Description |
 |------|-------------|
-| `generate_keyword_ideas` | Generate related keywords from seed keywords and/or a URL with search volume and CPC data |
-| `get_historical_metrics` | Get historical search volume, competition, and CPC for a list of keywords |
-| `get_keyword_forecast` | Get projected impressions, clicks, and cost for keywords at a given max CPC bid |
+| `generate_keyword_ideas` | Related keywords from seeds, a URL or a site: filtered, brand-free, deduplicated and ranked |
+| `get_historical_metrics` | Exact-keyword lookup with bids, average CPC, 24-month trend and brand check |
+| `get_keyword_forecast` | Projected clicks, CTR, average CPC and cost per keyword at a given max CPC |
+| `score_topics` | Screen candidate topics: best offerName, runner-ups, bidder evidence and verdict |
+| `find_offer_variants` | Expand a topic with commercial modifiers and recommend the exact offerName |
+| `compare_keyword_markets` | Compare keywords across countries and languages |
+| `find_seasonal_opportunities` | Commercial keywords peaking in an upcoming launch window |
+| `get_targeting_reference` | Language/country codes, presets, thresholds and lexicons (no API quota) |
+
+Every tool accepts `countries` (ISO codes or presets like `DACH`) and scores each keyword for AdSense-for-Search arbitrage: bids in account currency, demand tier, commercial intent, brand flag, trend and a launch/borderline/skip verdict. See [AFS scoring](docs/afs-scoring.md). The C# build implements only the first three tools.
 
 ---
 
@@ -232,6 +239,8 @@ Credentials are resolved in this priority order: **CLI flag > environment variab
 
 > \* Required when `GOOGLE_ADS_CUSTOMER_ID` is a managed sub-account (accessed through a manager/MCC account). Can be omitted if your OAuth credentials have direct access to the customer account.
 
+The Go binary also reads `KWP_MAX_QPS` (API requests per second, default `1`, `0` disables pacing) `KWP_CACHE_TTL` (how long identical planner requests are cached, default `12h`, `0` disables caching) and `KWP_CACHE_MAX_MB` (cache size budget, default `64`).
+
 ### `.env` File
 
 Place a `.env` file in the same directory as the binary:
@@ -287,50 +296,13 @@ and [Transports](https://www.devleader.ca/projects/google-keyword-planner-mcp/tr
 
 ## Tool Reference
 
-### `generate_keyword_ideas`
-
-Generates related keyword ideas from seed keywords and/or a URL.
-
-**Parameters:**
-- `seedKeywords` (optional) -- comma-separated seed keywords (e.g. `"C# tutorial, dotnet performance"`)
-- `url` (optional) -- a URL to generate keyword ideas from (e.g. `"https://devleader.ca"`)
-- `language` (optional) -- language resource name (e.g. `"languageConstants/1000"` for English)
-
-At least one of `seedKeywords` or `url` must be provided.
-
-**Returns:** List of keyword ideas with `avgMonthlySearches`, `competition` (LOW/MEDIUM/HIGH), `lowTopOfPageBidMicros`, `highTopOfPageBidMicros`.
-
-**Note:** Without active ad spend, search volumes are shown as ranges. Any minimal ad spend unlocks precise monthly volumes.
-
----
-
-### `get_historical_metrics`
-
-Gets historical search volume and competition data for a specific list of keywords.
-
-**Parameters:**
-- `keywords` (required) -- comma-separated list of keywords (e.g. `"dependency injection, SOLID principles"`)
-
-**Returns:** Per-keyword metrics including `avgMonthlySearches`, `competition`, `competitionIndex`, bid estimates, and `monthlySearchVolumes` (12-month breakdown).
-
----
-
-### `get_keyword_forecast`
-
-Projects impressions, clicks, and cost for keywords at a specified maximum CPC bid.
-
-**Parameters:**
-- `keywords` (required) -- comma-separated list of keywords
-- `maxCpcMicros` (optional, default `1000000`) -- maximum CPC bid in micros (1,000,000 = $1.00)
-- `forecastDays` (optional, default `30`) -- number of days to forecast
-
-**Returns:** Per-keyword projected `impressions`, `clicks`, `costMicros`, and `ctr`.
+Full parameter and response reference for every tool: [docs/tools](docs/tools/index.md). The scoring behind every keyword row: [docs/afs-scoring.md](docs/afs-scoring.md).
 
 ---
 
 ## Go vs C# -- Which Binary to Use?
 
-Both binaries implement identical behavior. Choose based on preference:
+The Go binary implements all eight tools; the C# binary implements `generate_keyword_ideas`, `get_historical_metrics` and `get_keyword_forecast` with the original parameters.
 
 | | Go | C# AOT |
 |---|---|---|
