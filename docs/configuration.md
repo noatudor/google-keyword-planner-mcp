@@ -17,6 +17,14 @@ Credentials are resolved in this priority order: **CLI flag > environment variab
 | Customer ID | `--customer-id` | `GOOGLE_ADS_CUSTOMER_ID` | Yes | Sub-account ID with billing -- dashes are stripped automatically |
 | Login customer ID | `--login-customer-id` | `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | Conditional | Manager/MCC account ID -- required when using a sub-account |
 
+## Request pacing and caching (Go)
+
+| Environment variable | Default | Description |
+|---------------------|---------|-------------|
+| `KWP_MAX_QPS` | `1` | Maximum Google Ads API requests per second. Keyword Planning quotas are tight; fan-out tools (`score_topics`, `per_country`) are paced by this. `0` disables pacing. |
+| `KWP_CACHE_TTL` | `12h` | How long identical planner requests are served from memory (Go duration). Planner data changes monthly. `0` disables caching. |
+| `KWP_CACHE_MAX_MB` | `64` | Cache size budget. Idea responses with 24 months of history can be several MB; a single response larger than a quarter of the budget is not cached. `0` disables caching. |
+
 !!! note "When is GOOGLE_ADS_LOGIN_CUSTOMER_ID required?"
     It is required when `GOOGLE_ADS_CUSTOMER_ID` is a managed sub-account accessed through a manager/MCC account. It tells the API which manager to authenticate through by sending it as the `login-customer-id` HTTP header.
 

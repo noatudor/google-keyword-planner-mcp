@@ -186,7 +186,7 @@ public sealed class HostingHttpTests
     [Fact]
     public async Task BuildHttpHost_CallHistoricalMetricsTool_ViaRealSession_ReturnsSuccessResult()
     {
-        var handler = new FakeGoogleAdsHandler("""{"metrics":[]}""");
+        var handler = new FakeGoogleAdsHandler("""{"results":[]}""");
         await using var app = Hosting.BuildHttpHost(
             [], DevToken, ClientId, ClientSecret, RefreshToken, CustomerId, loginCustomerId: null, port: 0, handler);
         await app.StartAsync();
@@ -216,7 +216,7 @@ public sealed class HostingHttpTests
     [Fact]
     public async Task BuildHttpHost_CallKeywordForecastTool_ViaRealSession_ReturnsSuccessResult()
     {
-        var handler = new FakeGoogleAdsHandler("""{"adGroupForecastMetrics":[]}""");
+        var handler = new FakeGoogleAdsHandler("""{"campaignForecastMetrics":{}}""");
         await using var app = Hosting.BuildHttpHost(
             [], DevToken, ClientId, ClientSecret, RefreshToken, CustomerId, loginCustomerId: null, port: 0, handler);
         await app.StartAsync();

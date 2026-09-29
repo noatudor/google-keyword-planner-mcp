@@ -4,7 +4,7 @@ description: Compare the Go and C# Native AOT implementations of the Google Keyw
 
 # Go vs C#
 
-Both implementations expose identical MCP tools and accept the same credentials. Choose based on your environment and preferences.
+Both implementations accept the same credentials and transports. The Go implementation exposes all eight tools, including the AdSense-for-Search research tools and the `countries` / scoring parameters; the C# implementation exposes `generate_keyword_ideas`, `get_historical_metrics` and `get_keyword_forecast` with the original parameters.
 
 ## Comparison
 
@@ -37,4 +37,4 @@ is the disallowed-Host status code (`403` for Go and `400` for C#).
 
 ## Which Binary Is Right for Most Users?
 
-For AI assistant integration (GitHub Copilot, Claude, Cursor), either works fine. The server starts once and stays running -- the ~15 ms startup difference is imperceptible. Pick whichever binary matches the platform you're on (see the [Getting Started](getting-started.md) download table).
+Choose Go for the full tool set. For the three core tools, either works fine. The server starts once and stays running -- the ~15 ms startup difference is imperceptible. Pick whichever binary matches the platform you're on (see the [Getting Started](getting-started.md) download table).

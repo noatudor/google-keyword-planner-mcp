@@ -7,16 +7,6 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// toolArrayFields declares, for each tool name, which top-level argument fields
-// are array-typed. coerceStringifiedArrayArgs uses this to know which fields to
-// repair; it is intentionally a plain data map (not per-tool duplicated logic),
-// so every tool with a keyword-list parameter is covered by one code path.
-var toolArrayFields = map[string][]string{
-	"generate_keyword_ideas": {"seed_keywords"},
-	"get_historical_metrics": {"keywords"},
-	"get_keyword_forecast":   {"keywords"},
-}
-
 // coerceStringifiedArrayArgs returns a receiving middleware that repairs a
 // widespread MCP client bug: some clients JSON-encode an array-typed tool
 // argument as a string (e.g. `"[\"a\",\"b\"]"` instead of `["a","b"]`) before

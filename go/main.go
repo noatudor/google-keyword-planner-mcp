@@ -14,14 +14,14 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/ncosentino/google-keyword-planner-mcp/go/internal/config"
@@ -74,6 +74,7 @@ func main() {
 
 	client := keywordplanner.NewClient(
 		cfg.DeveloperToken, cfg.ClientID, cfg.ClientSecret, cfg.RefreshToken, cfg.CustomerID, cfg.LoginCustomerID,
+		clientOptionsFromEnv()...,
 	)
 
 	srv := newServer(client)
@@ -132,37 +133,40 @@ func newServer(client *keywordplanner.Client) *mcp.Server {
 	// JSON-encoded as a string instead of a genuine array (see stringified_args.go).
 	srv.AddReceivingMiddleware(coerceStringifiedArrayArgs(toolArrayFields))
 
-	mcp.AddTool(srv,
-		&mcp.Tool{
-			Name:        "generate_keyword_ideas",
-			Description: "Generate keyword ideas from seed keywords and/or a URL using Google Ads Keyword Planner. Returns related keywords with average monthly search volume, competition level, and CPC estimates.",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, input generateKeywordIdeasInput) (*mcp.CallToolResult, any, error) {
-			return generateKeywordIdeas(ctx, client, input)
-		},
-	)
-
-	mcp.AddTool(srv,
-		&mcp.Tool{
-			Name:        "get_historical_metrics",
-			Description: "Get historical search volume and competition metrics for a list of specific keywords using Google Ads Keyword Planner.",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, input getHistoricalMetricsInput) (*mcp.CallToolResult, any, error) {
-			return getHistoricalMetrics(ctx, client, input)
-		},
-	)
-
-	mcp.AddTool(srv,
-		&mcp.Tool{
-			Name:        "get_keyword_forecast",
-			Description: "Get projected impressions, clicks, and cost for a set of keywords at a given max CPC bid using Google Ads Keyword Planner.",
-		},
-		func(ctx context.Context, _ *mcp.CallToolRequest, input getKeywordForecastInput) (*mcp.CallToolResult, any, error) {
-			return getKeywordForecast(ctx, client, input)
-		},
-	)
-
+	registerTools(srv, client)
 	return srv
+}
+
+// clientOptionsFromEnv reads KWP_MAX_QPS (requests per second, 0 disables limiting),
+// KWP_CACHE_TTL (a Go duration such as "12h", 0 disables caching) and KWP_CACHE_MAX_MB
+// (cache size budget in MB, 0 disables caching).
+func clientOptionsFromEnv() []keywordplanner.Option {
+	var opts []keywordplanner.Option
+	if v := strings.TrimSpace(os.Getenv("KWP_MAX_QPS")); v != "" {
+		qps, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			slog.Warn("ignoring invalid KWP_MAX_QPS", "value", v)
+		} else {
+			opts = append(opts, keywordplanner.WithMaxQPS(qps))
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("KWP_CACHE_TTL")); v != "" {
+		ttl, err := time.ParseDuration(v)
+		if err != nil {
+			slog.Warn("ignoring invalid KWP_CACHE_TTL", "value", v)
+		} else {
+			opts = append(opts, keywordplanner.WithCacheTTL(ttl))
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("KWP_CACHE_MAX_MB")); v != "" {
+		mb, err := strconv.Atoi(v)
+		if err != nil {
+			slog.Warn("ignoring invalid KWP_CACHE_MAX_MB", "value", v)
+		} else {
+			opts = append(opts, keywordplanner.WithCacheMaxBytes(mb<<20))
+		}
+	}
+	return opts
 }
 
 // splitAndTrim splits a comma-separated flag value into a trimmed, non-empty slice.
@@ -175,73 +179,4 @@ func splitAndTrim(s string) []string {
 		}
 	}
 	return out
-}
-
-// generateKeywordIdeasInput is the input schema for the generate_keyword_ideas tool.
-// SeedKeywords and URL both carry ",omitempty" so neither is marked required in the
-// exported JSON schema: the tool only requires that at least one of them be provided,
-// which is enforced at runtime in generateKeywordIdeas rather than by the schema.
-type generateKeywordIdeasInput struct {
-	SeedKeywords []string `json:"seed_keywords,omitempty" jsonschema:"Seed keywords to generate ideas from (e.g. ['C# tutorial', 'dotnet performance']). At least one of seed_keywords or url must be provided."`
-	URL          string   `json:"url,omitempty"           jsonschema:"A URL to generate ideas from (e.g. 'https://devleader.ca'). At least one of seed_keywords or url must be provided."`
-	Language     string   `json:"language,omitempty"      jsonschema:"Language resource name (e.g. 'languageConstants/1000' for English). Omit to use all languages."`
-}
-
-// getHistoricalMetricsInput is the input schema for the get_historical_metrics tool.
-type getHistoricalMetricsInput struct {
-	Keywords []string `json:"keywords" jsonschema:"List of keywords to get historical search metrics for (e.g. ['dependency injection', 'SOLID principles'])."`
-}
-
-// getKeywordForecastInput is the input schema for the get_keyword_forecast tool.
-type getKeywordForecastInput struct {
-	Keywords     []string `json:"keywords"                 jsonschema:"List of keywords to forecast performance for."`
-	MaxCPCMicros int64    `json:"max_cpc_micros,omitempty" jsonschema:"Maximum CPC bid in micros (1,000,000 = $1.00). Defaults to 1,000,000 if omitted or 0."`
-	ForecastDays int      `json:"forecast_days,omitempty"  jsonschema:"Number of days to forecast. Defaults to 30 if omitted or 0."`
-}
-
-func generateKeywordIdeas(ctx context.Context, client *keywordplanner.Client, input generateKeywordIdeasInput) (*mcp.CallToolResult, any, error) {
-	if len(input.SeedKeywords) == 0 && input.URL == "" {
-		errResult := map[string]string{"error": "at least one of seed_keywords or url must be provided"}
-		b, _ := json.Marshal(errResult)
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
-	}
-	result, err := client.GenerateKeywordIdeas(ctx, input.SeedKeywords, input.URL, input.Language)
-	if err != nil {
-		errResult := map[string]string{"error": fmt.Sprintf("generating keyword ideas: %v", err)}
-		b, _ := json.Marshal(errResult)
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
-	}
-	b, err := json.Marshal(result)
-	if err != nil {
-		return nil, nil, fmt.Errorf("marshalling result: %w", err)
-	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
-}
-
-func getHistoricalMetrics(ctx context.Context, client *keywordplanner.Client, input getHistoricalMetricsInput) (*mcp.CallToolResult, any, error) {
-	result, err := client.GetHistoricalMetrics(ctx, input.Keywords)
-	if err != nil {
-		errResult := map[string]string{"error": fmt.Sprintf("getting historical metrics: %v", err)}
-		b, _ := json.Marshal(errResult)
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
-	}
-	b, err := json.Marshal(result)
-	if err != nil {
-		return nil, nil, fmt.Errorf("marshalling result: %w", err)
-	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
-}
-
-func getKeywordForecast(ctx context.Context, client *keywordplanner.Client, input getKeywordForecastInput) (*mcp.CallToolResult, any, error) {
-	result, err := client.GetKeywordForecast(ctx, input.Keywords, input.MaxCPCMicros, input.ForecastDays)
-	if err != nil {
-		errResult := map[string]string{"error": fmt.Sprintf("getting keyword forecast: %v", err)}
-		b, _ := json.Marshal(errResult)
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
-	}
-	b, err := json.Marshal(result)
-	if err != nil {
-		return nil, nil, fmt.Errorf("marshalling result: %w", err)
-	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}, nil, nil
 }

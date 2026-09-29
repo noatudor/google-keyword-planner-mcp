@@ -51,6 +51,12 @@ nav:
     - generate_keyword_ideas: tools/generate-keyword-ideas.md
     - get_historical_metrics: tools/get-historical-metrics.md
     - get_keyword_forecast: tools/get-keyword-forecast.md
+    - score_topics: tools/score-topics.md
+    - find_offer_variants: tools/find-offer-variants.md
+    - compare_keyword_markets: tools/compare-keyword-markets.md
+    - find_seasonal_opportunities: tools/find-seasonal-opportunities.md
+    - get_targeting_reference: tools/get-targeting-reference.md
+  - AFS Scoring: afs-scoring.md
   - Setup by Tool: setup-by-tool.md
   - Configuration: configuration.md
   - Transports: transports.md
